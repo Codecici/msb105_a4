@@ -1,0 +1,443 @@
+---
+title: "msb105 a4"
+format: html
+editor: visual
+---
+
+# Pakker
+
+```{r}
+#| label: setup
+#| message: false
+library(tidyverse)
+library(readxl)
+library(restatapi)
+library(DescTools)
+library(ggrepel)
+library(flextable)
+library(modelr)
+library(plm)
+library(broom)
+library(sandwich)
+```
+
+# Toc.eurostat
+
+```{r}
+# xml skal ha mer detaljert info
+# toc_xml <- get_eurostat_toc()
+# tekstversjonen har trolig nok info for vårt formål
+
+toc_txt <- get_eurostat_toc(mode = "txt")
+```
+
+# GDP NUTS 3
+
+```{r}
+gdp_tabs <- toc_txt |> 
+# Regex AND external to regex
+   filter(
+     str_detect(
+       string = title,
+       # For å matche både små og store bokstaver
+       pattern = '[Gg][Dd][Pp]'
+       # AND vha. &
+       ) &
+     str_detect(
+       string = title,
+       # For å matche både små og store bokstaver og
+       # space eller ikke før 3
+       pattern = '[Nn][Uu][Tt][Ss]\\s*3'
+       )
+     ) |> 
+  select(title, code)
+
+```
+
+```{r}
+gdp_tabs |> 
+  select(title, code) |> 
+  flextable()  |> 
+  width(1, width = 3.5) |> 
+  width(2, width = 1.5)
+```
+
+```{r}
+# description nama_10r_3gdp
+dsd_gdp <- get_eurostat_dsd("nama_10r_3gdp")
+
+```
+
+```{r}
+dsd_gdp |> 
+  filter(concept %in% c('freq', 'unit')) |> 
+  flextable()  |> 
+  width(j = 1, width = 1) |> 
+  width(j = 2, width = 2) |> 
+  width(j = 3, width = 2)
+```
+
+```{r}
+dsd_gdp |> 
+  filter(concept %in% c('geo')) |> 
+  head(n = 10) |> 
+  flextable()  |> 
+  width(j = 1, width = 1) |> 
+  width(j = 2, width = 2) |> 
+  width(j = 3, width = 2)
+```
+
+```{r}
+#| eval: true
+#| cache: true
+# Gross domestic product (GDP) at current market prices by NUTS 3 regions 
+# id: nama_10r_3gdp
+# Vi velger å hente samtlige soner for så å filtrere ut de få vi ikke trenger
+gdp <- get_eurostat_data(
+  id = "nama_10r_3gdp",
+  filters = list(
+    # neste linje viser hvordan vi kunne ha hentet ut data
+    # for spesifiserte land
+    # geo = c("AT", "DE", "DK", "FR"),
+    nuts_level = "3",
+    unit = "MIO_PPS_EU27_2020"
+  ),
+  exact_match = FALSE,
+  date_filter = 2000:2023,
+  stringsAsFactors = FALSE
+  ) |> 
+  mutate(
+    gdp_n3 = 1000000 * values
+  ) |> 
+  select(-c(unit, values)) |> 
+  # Vil bare ha NUTS 3 nivå (5 karakterer). Vil aggregere selv til NUTS2,
+  # NUTS1 og NUTSc  
+  filter(str_length(geo) == 5) |> 
+  as_tibble()
+```
+
+```{r}
+dim(gdp)
+```
+
+```{r}
+gdp
+```
+
+```{r}
+gdp |> 
+  filter(geo == "IE053") |> 
+  print(n = 25)
+```
+
+```{r}
+ie_data <- tibble(
+  geo = c("IE053", "IE053", "IE053"),
+  time = c("2015", "2016", "2017"),
+  gdp_n3 = c(NA, NA, NA)
+)
+```
+
+```{r}
+gdp <- rbind(gdp, ie_data)
+```
+
+```{r}
+gdp <- gdp |> 
+  arrange(geo, time) |> 
+  mutate(
+    gdp_n3 = zoo::na.approx(gdp_n3)
+  )
+```
+
+```{r}
+gdp |> 
+  filter(geo == "IE053") |> 
+  print(n = 25)
+```
+
+# Population demo_r_pjanaggr3
+
+## Oppgave 1
+```{r}
+# Søk i toc_txt etter tabeller som inneholder både population og NUTS 3
+# Vi bruker regexp for å dekke både små og store bokstaver og ulike skrivemåter
+
+pop_tabs <- toc_txt |>
+  filter(
+    str_detect(
+      string  = title,
+      pattern = "[Pp]opulation"
+    ) &
+      str_detect(
+        string  = title,
+        pattern = "[Nn][Uu][Tt][Ss]\\s*3"
+      )
+  ) |>
+  select(title, code)
+
+pop_tabs |>
+  flextable() |>
+  width(1, width = 5) |>
+  width(2, width = 2)
+
+```
+
+## Oppgave 2
+```{r}
+# Last ned Data Structure Definition (DSD) for demo_r_pjanaggr3
+dsd_pop <- get_eurostat_dsd("demo_r_pjanaggr3")
+```
+
+```{r}
+# Vis relevante variabler fra DSD for demo_r_pjanaggr3
+# Vi viser freq, unit, sex og age slik som PDF gjør i GDP-delen
+dsd_pop |>
+  filter(concept %in% c("freq", "unit", "sex", "age")) |>
+  flextable() |>
+  width(j = 1, width = 1) |>
+  width(j = 2, width = 2) |>
+  width(j = 3, width = 2)
+
+```
+
+```{r}
+# Bruk DSD-informasjonen til å laste ned pop-data på NUTS3-nivå
+pop <- get_eurostat_data(
+  id = "demo_r_pjanaggr3",
+  filters = list(
+    freq = "A",       # Annual
+    unit = "THS",     # Thousand (jf. DSD-tabellen over)
+    sex  = "T",       # Totalt kjønn
+    age  = "TOTAL"    # Alle aldre
+  ),
+  exact_match = FALSE,
+  date_filter = 2000:2023,
+  stringsAsFactors = FALSE
+) |>
+  mutate(pop_n3 = values) |>
+  select(geo, time, pop_n3) |>
+  filter(str_length(geo) == 5) |>
+  as_tibble()
+
+```
+
+```{r}
+dim(pop)
+```
+
+```{r}
+pop
+```
+
+## Oppgave 3
+
+```{r}
+# Slå sammen GDP- og befolkningstabellene
+# Viktig: gdp skal være venstre tabell
+
+gdp_pop <- gdp |>
+  left_join(pop, by = c("geo", "time"))
+```
+
+
+```{r}
+# Tilpasning av gdp_pop i henhold til oppgaveteksten
+
+eu_data <- gdp_pop %>%
+  
+  # Trenger ikke ZZ-sonene som er en slags oppsamlingssone
+  # for ikke-fordelte verdier
+  filter(!str_sub(geo, 3, 4) == "ZZ") |> 
+  
+  # Dropper EFTA-landene Sveits og Norge
+  filter(!str_sub(geo, 1, 2) %in% c("CH", "NO")) |> 
+  
+  # Dropper EU-landene Nederland og Portugal
+  filter(!str_sub(geo, 1, 2) %in% c("NL", "PT")) |> 
+  
+  # Dropper kandidatlandet Montenegro på grunn av manglende data
+  filter(!str_sub(geo, 1, 2) %in% c("ME")) |> 
+  
+  # Dropper en region av Frankrike i Indiahavet (Outre Mer); Mayotte
+  # fordi data mangler
+  filter(!geo == "FRY50") |> 
+  
+  # Merk at enkelte land mangler data for enkelte år i starten av perioden
+  filter(time > 1999 & time < 2023) |> 
+  
+  # Regner ut GDP per capita på NUTS 3-nivå
+  mutate(
+    gdp_pc_n3 = gdp_n3 / pop_n3
+  )
+
+# Sjekk dimensjoner av sluttresultatet
+dim(eu_data)
+
+```
+
+```{r}
+# Sjekker om vi har manglende data (NA) for enkelte år i noen NUTS3-soner
+
+colSums(is.na(eu_data))
+
+```
+
+## Oppgave 4
+
+```{r}
+# Endre geo til n3 og lag variablene n2, n1 og nc
+
+eu_data <- eu_data |>
+  # Endrer navnet fra geo til n3
+  rename(n3 = geo) |>
+  
+  # Lager nye variabler basert på n3-koden
+  mutate(
+    n2 = str_sub(n3, 1, 4),   # NUTS2: første 4 tegn
+    n1 = str_sub(n3, 1, 3),   # NUTS1: første 3 tegn
+    nc = str_sub(n3, 1, 2)    # Landskode: første 2 tegn
+  )
+
+```
+
+```{r}
+eu_data |>
+  select(n3, n2, n1, nc) |>
+  head(10)
+```
+
+## Oppgave 5
+
+```{r}
+# Sjekk om noen NUTS3-soner har pop_n3 lik 0, og sett disse til NA
+
+# Sjekker om det finnes verdier som er 0
+sum(eu_data$pop_n3 == 0, na.rm = TRUE)
+```
+
+```{r}
+# Setter pop_n3 = 0 til NA dersom slike finnes
+eu_data <- eu_data |>
+  mutate(
+    pop_n3 = ifelse(pop_n3 == 0, NA, pop_n3)
+  )
+```
+
+## Oppgave 6
+
+```{r}
+# Teller antall unike NUTS3-soner i hvert land
+nuts3_per_land <- eu_data |>
+  group_by(nc) |>
+  summarise(Antall = n_distinct(n3)) |>
+  arrange(nc)
+
+# Teller hvor mange land (nc) vi har totalt
+n_lands <- nuts3_per_land |> summarise(n = n()) |> pull(n)
+
+# Lager flextable og legger til en footer med "n: xx"
+flextable_nuts3 <- nuts3_per_land |>
+  flextable() |>
+  width(j = 1, width = 1) |>
+  width(j = 2, width = 1) |>
+  add_footer_lines(values = paste0("n: ", n_lands)) |>
+  align(align = "left", part = "footer")
+
+flextable_nuts3
+```
+
+## Oppgave 7
+
+```{r}
+# Sjekk summary for gdp_pc_n3
+# Viser et standard summary for variabelen gdp_pc_n3
+summary(eu_data$gdp_pc_n3)
+```
+
+```{r}
+# Minste verdi
+min_gdp_pc <- min(eu_data$gdp_pc_n3, na.rm = TRUE)
+min_gdp_pc
+
+# Største verdi
+max_gdp_pc <- max(eu_data$gdp_pc_n3, na.rm = TRUE)
+max_gdp_pc
+
+# Antall NA-verdier i gdp_pc_n3
+sum(is.na(eu_data$gdp_pc_n3))
+```
+
+Datasettet gdp_pc_n3 har 2 368 NA-verdier, og den minste verdien er 2 217, mens den største verdien er 180 574.
+
+## Oppgave 8
+
+```{r}
+# Legg til variabelen nc_name basert på landskode (nc)
+
+eu_data <- eu_data |>
+  mutate(
+    nc_name = case_when(
+      nc == "AL" ~ "Albania",
+      nc == "AT" ~ "Østerrike",
+      nc == "BE" ~ "Belgia",
+      nc == "BG" ~ "Bulgaria",
+      nc == "CY" ~ "Kypros",
+      nc == "CZ" ~ "Tjekkia",
+      nc == "DE" ~ "Tyskland",
+      nc == "DK" ~ "Danmark",
+      nc == "EE" ~ "Estland",
+      nc == "EL" ~ "Hellas",
+      nc == "ES" ~ "Spania",
+      nc == "FI" ~ "Finland",
+      nc == "FR" ~ "Frankrike",
+      nc == "HR" ~ "Kroatia",
+      nc == "HU" ~ "Ungarn",
+      nc == "IE" ~ "Irland",
+      nc == "IT" ~ "Italia",
+      nc == "LT" ~ "Litauen",
+      nc == "LU" ~ "Luxembourg",
+      nc == "LV" ~ "Latvia",
+      nc == "MK" ~ "Nord-Makedonia",
+      nc == "MT" ~ "Malta",
+      nc == "PL" ~ "Polen",
+      nc == "RO" ~ "Romania",
+      nc == "RS" ~ "Serbia",
+      nc == "SE" ~ "Sverige",
+      nc == "SI" ~ "Slovenia",
+      nc == "SK" ~ "Slovakia",
+      nc == "TR" ~ "Tyrkia",
+      TRUE ~ NA_character_
+    )
+  )
+
+```
+
+```{r}
+eu_data |>
+  select(nc_name, nc) |>
+  distinct() |>
+  print(n = 30)
+
+```
+
+# Beregning av Gini på NUTS2, NUTS1 og NUTSc nivå
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
