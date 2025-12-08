@@ -423,6 +423,237 @@ eu_data |>
 
 # Beregning av Gini på NUTS2, NUTS1 og NUTSc nivå
 
+## Oppgave 9
+
+```{r}
+# Beregne Gini-koeffisienter på NUTS2 nivå
+
+gini_n2 <- eu_data |>
+  group_by(n2, time, n1, nc, nc_name) |>
+  summarise(
+    gini_n2 = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    pop_n2  = sum(pop_n3),
+    gdp_n2  = sum(gdp_n3),
+    gdp_pc_n2 = gdp_n2 / pop_n2,
+    num_reg_n2 = n(),
+    .groups = "drop"
+  )
+
+# Summary
+gini_n2 |>
+  select(gini_n2, num_reg_n2, gdp_n2, pop_n2, gdp_pc_n2) |>
+  summary() |>
+  print(width = 76)
+
+```
+Gini-koeffisienten på NUTS2 nivå varierer fra 0.00023 til 0.47946, og har 1 263 NA-verdier. Antall NUTS3 per NUTS2 varierer mellom 1 og 23.
+
+## Oppgave 10
+
+```{r}
+# Beregner Gini-koeffisienter og økonomiske nøkkeltall på NUTS1 nivå
+gini_n1 <- eu_data |>
+  group_by(n1, time, nc, nc_name) |>
+  summarise(
+    gini_n1 = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    pop_n1 = sum(pop_n3),
+    gdp_n1 = sum(gdp_n3),
+    gdp_pc_n1 = gdp_n1 / pop_n1,
+    num_reg_n1 = n(),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# Finner NUTS1-observasjoner med svært lav Gini (< 0.001)
+low_gini <- gini_n1 |> 
+  filter(gini_n1 < 0.001) |>
+  arrange(nc, n1, time)
+
+low_gini
+```
+
+Det finner ingen NUTS1-observasjoner med Gini mindre enn 0.001 i datasettet
+
+```{r}
+# Viser de 5 NUTS1-observasjonene med lavest Gini-verdi
+gini_n1 |>
+  arrange(gini_n1) |>
+  head(5)
+
+```
+
+## Oppgave 11
+
+```{r}
+# Beregner Gini-koeffisienter og økonomiske nøkkeltall på NUTS1 nivå
+gini_n1 <- eu_data |>
+  group_by(n1, time, nc, nc_name) |>
+  summarise(
+    gini_n1   = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    pop_n1    = sum(pop_n3),
+    gdp_n1    = sum(gdp_n3),
+    gdp_pc_n1 = gdp_n1 / pop_n1,
+    num_reg_n1 = n(),
+    .groups = "drop"
+  )
+
+# Summary
+gini_n1 |>
+  select(gini_n1, num_reg_n1, gdp_n1, pop_n1, gdp_pc_n1) |>
+  summary() |>
+  print(width = 76)
+
+```
+
+Gini-koeffisienten på NUTS1 nivå varierer fra omtrent 0.016 til 0.426, og har 297 NA-verdier. Antall NUTS3 i NUTS1-regionene varierer fra 1 til 96.
+
+## Oppgave 12
+
+```{r}
+# Beregner Gini-koeffisienter på landsnivå (NUTSc), basert på NUTS3-verdier
+gini_nc <- eu_data |>
+  group_by(nc, nc_name, time) |>
+  summarise(
+    gini_nc   = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    pop_nc    = sum(pop_n3),
+    gdp_nc    = sum(gdp_n3),
+    gdp_pc_nc = gdp_nc / pop_nc,
+    num_reg_nc = n(),         # antall NUTS3 i landet
+    .groups = "drop"
+  )
+
+# Summary
+gini_nc |>
+  select(gini_nc, num_reg_nc, gdp_nc, pop_nc, gdp_pc_nc) |>
+  summary() |>
+  print(width = 80)
+
+```
+
+Gini-koeffisienten på nasjonalt nivå varierer fra omtrent 0.029 til 0.412, og har 97 NA-verdier. Antall NUTS3 regioner per land varierer fra 1 til 400.
+
+# «Nestete» datastrukturer
+
+## Oppgave 13
+
+```{r}
+# Nest dataene på NUTS3 nivå
+gini_n3_nest <- eu_data |> 
+  group_by(nc_name, nc) |> 
+  nest(.key = "NUTS3_data") |> 
+  ungroup()
+```
+
+## Oppgave 14
+
+```{r}
+# Nest dataene på NUTS2 nivå
+gini_NUTS2_nest <- eu_data |>
+  group_by(nc_name, nc) |>    
+  nest(.key = "NUTS2_data") |>   
+  ungroup()
+
+```
+
+## Oppgave 15
+
+```{r}
+# Nest på NUTS1 nivå
+gini_NUTS1_nest <- eu_data |>
+  group_by(nc_name, nc) |>
+  nest(.key = "NUTS1_data") |>   
+  ungroup()
+
+```
+
+## Oppgave 16
+
+```{r}
+# Nest på nasjonsnivå (land)
+gini_NUTSc_nest <- eu_data |>
+  group_by(nc_name, nc) |>
+  nest(.key = "NUTSc_data") |>  
+  ungroup()
+```
+
+## Oppgave 17
+
+```{r}
+gini_NUTSeu_nest <- eu_data |>
+  group_by(time) |>
+  summarise(
+    gini_eu = DescTools::Gini(gdp_pc_n3, weights = pop_n3, na.rm = TRUE),
+    num_reg_eu = n(),
+    .groups = "drop"
+  )
+
+```
+
+## Oppgave 18
+
+```{r}
+gini_NUTSeu_nest <- gini_NUTSeu_nest |>
+  mutate(time = as.numeric(time))  
+```
+
+
+```{r}
+#| label: fig-gini-eu
+#| fig-cap: "Utvikling i Gini-koeffisienten for NUTS3-regioner i EU."
+
+ggplot(gini_NUTSeu_nest, aes(x = time, y = gini_eu)) +
+  geom_line() +
+  theme_minimal() +
+  labs(
+    x = "Year",
+    y = "gini_eu"
+  )
+
+```
+
+## Oppgave 19
+
+Gini-koeffisienten mellom NUTS3-regioner viser en tydelig fallende trend over tid, slik @fig-gini-eu illustrerer. Dette innebærer at regionale forskjeller gradvis reduseres. En slik utvikling er i tråd med målet om å styrke mindre utviklede områder gjennom EUs strukturfond. @fig-gini-eu indikerer også at tiltaket kan ha ønsket effekt.
+
+## Oppgave 20
+
+```{r}
+# Kombinerer alle NUTS-nivå til ett nestet datasett per land
+eu_data_nested <- gini_n3_nest |>
+  left_join(gini_NUTS2_nest, by = c("nc", "nc_name"), relationship = "many-to-many") |>
+  left_join(gini_NUTS1_nest, by = c("nc", "nc_name"), relationship = "many-to-many") |>
+  left_join(gini_NUTSc_nest, by = c("nc", "nc_name"), relationship = "many-to-many")
+
+```
+
+# Plots som viser utviklingen
+
+## Oppgave 21
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
