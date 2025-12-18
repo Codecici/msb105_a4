@@ -926,6 +926,7 @@ eu_data |>
     colour = "NUTS3"
   )
 ```
+
 ```{r}
 # Viser BNP per innbygger i 2022 for NUTS3-regionene i FR1.
 eu_data |>
@@ -943,28 +944,268 @@ Ja. Ut fra @fig-gdp-fr1-n3 kan vi se at FR1 (Île-de-France) har betydelige inte
 
 ## Oppgave 33
 
+```{r}
+n3_data <- eu_data_nested |> 
+  unnest(NUTS3_data) |> 
+  select(nc_name, n2, n3, time, gdp_pc_n3)
+```
+
+```{r}
+n2_data <- eu_data_nested |> 
+  unnest(NUTS2_data) |> 
+  select(nc_name, n2, time, gini_n2)
+```
+
+```{r}
+NUTS2_diff <- n3_data |> 
+  left_join(n2_data, by = join_by(nc_name, n2, time)) |> 
+  mutate(
+    diff_gdp_per_capita = c(NA, 100 * diff(gdp_pc_n3)),
+    diff_gini_nuts2 = c(NA, 100 * diff(gini_n2))
+  ) %>%
+  filter(complete.cases(.)) |> 
+  group_by(nc_name, n2) |> 
+  nest(.key = "NUTS2_diff")
+```
+
+```{r}
+unnest(NUTS2_diff, NUTS2_diff) |> 
+  ungroup() |> 
+  filter(!is.nan(gini_n2)) |> 
+  select(n2) |> 
+  distinct() |> 
+  nrow()
+```
+
 ## Oppgave 34
+
+```{r}
+NUTS2_diff <- NUTS2_diff  |> 
+  group_by(nc_name, n2) |> 
+  mutate(
+    modell = map(
+      .x = NUTS2_diff,
+      .f = function(a_df) lm('diff_gini_nuts2 ~ diff_gdp_per_capita', data = a_df)
+    )
+  )
+```
 
 ## Oppgave 35
 
+```{r}
+NUTS2_diff <- NUTS2_diff |>
+  group_by(nc_name, n2) |>
+  mutate(
+    mod_coeff = bind_rows(
+      map(.x = modell, .f = coef)
+    )
+  )
+```
+
 ## Oppgave 36
+
+```{r}
+NUTS2_diff <- NUTS2_diff  |> 
+  group_by(nc_name, n2) |> 
+  mutate(
+    mod_sum = bind_rows(
+      map(
+        .x = modell,
+        .f = glance
+        )
+    )
+    )
+```
 
 ## Oppgave 37
 
+```{r}
+# Viser de tre NUTS2-regionene med høyest R² i modellen
+
+top3_r2 <- NUTS2_diff |>
+  ungroup() |>
+  tidyr::unnest(mod_sum) |>
+  filter(!is.na(r.squared), !is.nan(r.squared)) |>
+  arrange(desc(r.squared), nc_name, n2) |>
+  select(nc_name, n2, NUTS2_diff, modell, mod_coeff, r.squared) |>
+  slice(1:3)
+top3_r2
+
+```
+
+```{r}
+# Viser de tre NUTS2-regionene med lavest R² i modellen
+
+bot3_r2 <- NUTS2_diff |>
+  ungroup() |>
+  tidyr::unnest(mod_sum) |>
+  filter(!is.na(r.squared), !is.nan(r.squared)) |>
+  arrange(r.squared, nc_name, n2) |>
+  select(nc_name, n2, NUTS2_diff, modell, mod_coeff, r.squared) |>
+  slice(1:3)
+bot3_r2
+
+```
+
 ## Oppgave 38
+
+```{r}
+# Viser de tre NUTS2-regionene med høyest koeffisient for diff_gdp_per_capita
+
+top3_coeff <- NUTS2_diff |>
+  ungroup() |>
+  mutate(coeff_diff_gdp = mod_coeff$diff_gdp_per_capita) |>
+  filter(!is.na(coeff_diff_gdp), !is.nan(coeff_diff_gdp)) |>
+  arrange(desc(coeff_diff_gdp), nc_name, n2) |>
+  select(nc_name, n2, NUTS2_diff, modell, coeff_diff_gdp) |>
+  slice(1:3)
+
+top3_coeff
+
+```
 
 ## Oppgave 39
 
+```{r}
+# Teller hvor mange koeffisienter for diff_gdp_per_capita som er signifikante på 5%-nivå
+
+signifikante_koeff <- NUTS2_diff |>
+  ungroup() |>
+  tidyr::unnest(mod_sum) |>
+  filter(!is.na(p.value), !is.nan(p.value)) |>
+  filter(p.value < 0.05) |>
+  nrow()
+
+signifikante_koeff
+
+```
+
+162 av de 218 estimerte koeffisientene er signifikante på 5 % nivå.
+
 ## Oppgave 40
+
+```{r}
+# Slår sammen NUTS2-nivådata 
+d <- NUTS2_diff |> tidyr::unnest(NUTS2_diff)
+
+# Beregner 99,5-persentilen av absoluttverdiene til diff_gdp_per_capita
+q <- quantile(abs(d$diff_gdp_per_capita), 0.995, na.rm = TRUE)
+
+# Definerer en skaleringsfaktor
+scale_factor <- q / 1e-05
+
+# Skalerer diff_gdp_per_capita ved å dele på skaleringsfaktoren
+d <- d |> mutate(diff_gdp_scaled = diff_gdp_per_capita / scale_factor)
+```
+
+```{r}
+#| label: fig-density-diff-gdp
+#| fig-cap: "Tetthetsplott av diff_gdp_per_capita med stiplet linje for gjennomsnittet."
+
+ggplot(d, aes(x = diff_gdp_scaled)) +
+  geom_density(
+    na.rm = TRUE,
+    color = "black",
+    linewidth = 1,
+    bw = 2e-06
+  ) +
+  geom_vline(
+    xintercept = mean(d$diff_gdp_scaled, na.rm = TRUE),
+    linetype = "dashed",
+    color = "grey40"
+  ) +
+  coord_cartesian(xlim = c(-2e-05, 1e-05)) +
+  labs(
+    title = "Tetthetsfordeling av diff_gdp_per_capita",
+    x = "diff_gdp_per_capita",
+    y = "density"
+  ) +
+  theme_grey()
+
+```
 
 ## Oppgave 41
 
+```{r}
+# Teller hvor mange regresjonskoeffisienter for diff_gdp_per_capita som er positive
+
+positive_coeff <- NUTS2_diff |>
+  ungroup() |>
+  mutate(coeff_diff_gdp = mod_coeff$diff_gdp_per_capita) |>
+  filter(!is.na(coeff_diff_gdp)) |>
+  summarise(
+    totalt = n(),
+    positive = sum(coeff_diff_gdp > 0)
+  )
+
+positive_coeff
+
+```
+
+132 av de 218 estimerte regresjonskoeffisientene for diff_gdp_per_capita er X positive.
+
 ## Oppgave 42
+
+```{r}
+NUTS2_diff |>
+  ungroup() |>
+  mutate(coeff_diff_gdp = mod_coeff$diff_gdp_per_capita) |>
+  filter(!is.na(coeff_diff_gdp)) |>
+  summarise(
+    mean_coeff = mean(coeff_diff_gdp),
+    median_coeff = median(coeff_diff_gdp)
+  )
+
+```
 
 ## Oppgave 43
 
+```{r}
+# Utfører en ensidig t-test for å teste om gjennomsnittet av
+# diff_gdp_per_capita er signifikant større enn 0
+
+t_test_diff <- t.test(
+  NUTS2_diff$mod_coeff$diff_gdp_per_capita,
+  alternative = "greater",
+  mu = 0
+)
+
+t_test_diff
+
+```
+Ja, diff_gdp_per_capita er signifikant større enn 0.
+
+# Panel modell
+
 ## Oppgave 44
+
+```{r}
+d_panel <- d %>%
+  ungroup() %>%  
+  select(n3, time, diff_gini_nuts2, diff_gdp_per_capita) %>%
+  filter(!is.na(n3), !is.na(time))
+
+p_mod <- plm(
+  diff_gini_nuts2 ~ diff_gdp_per_capita,
+  data  = d_panel,
+  index = c("n3", "time")
+)
+```
 
 ## Oppgave 45
 
+```{r}
+summary(p_mod)
+
+```
+
 ## Oppgave 46
+```{r}
+s <- summary(p_mod)
+s
+```
+
+ 
+
+ 
+
