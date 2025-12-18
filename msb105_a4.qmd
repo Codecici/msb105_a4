@@ -641,7 +641,6 @@ gini_nc |>
   select(nc_name, gini_nc) |>
   knitr::kable(digits = 7)
 
-
 ```
 
 ## Oppgave 23
@@ -1201,11 +1200,13 @@ summary(p_mod)
 
 ## Oppgave 46
 ```{r}
-s <- summary(p_mod)
-s
+summary(
+  p_mod,
+  vcov = function(x) plm::vcovHC(x, method = "white2")
+)
 ```
-
  
+Her benyttes en alternativ måte å generere summary() for panelmodellen ved å spesifisere en egen varians–kovariansmatrise for koeffisientene. Ved å bruke `vcovHC()` med metoden "white2" beregnes heteroskedastisitets-robuste standardfeil.
 
- 
+De to summary-ene er basert på samme panelregresjonsmodell og gir identiske koeffisientestimater, men standardfeilene og tilhørende teststatistikker avviker. I den ordinære summary()-en er standardfeilen 2.4694e−08 og t-verdien 15.923, mens den alternative summary()-en som benytter heteroskedastisitets-robuste standardfeil via `vcovHC()` gir en høyere standardfeil på 2.7778e−08 og en lavere t-verdi på 14.155. Tilsvarende er F-statistikken 253.536 (1 og 25513 frihetsgrader) i den ordinære summary()-en, mot 200.369 (1 og 1185 frihetsgrader) i den robuste versjonen. Forskjellene skyldes bruken av ulike varians–kovariansmatriser, mens den overordnede statistiske konklusjonen forblir uendret.
 
